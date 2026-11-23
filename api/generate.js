@@ -1,7 +1,8 @@
-// Vercel serverless endpoint for secure portrait editing.
-// Configure OPENAI_API_KEY in Vercel Project Settings > Environment Variables.
+// Vercel serverless endpoint for portrait editing with Cloudflare Workers AI.
+// Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in Vercel Production env vars.
 const MAX_INPUT_BYTES = 3 * 1024 * 1024;
 const ALLOWED_MIME = new Set(["image/png", "image/jpeg", "image/webp"]);
+const MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 
 function clean(value, max = 120) {
   return typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -13,12 +14,13 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (!apiToken || !accountId) {
     return res.status(503).json({
-      error: "AI provider key is not configured.",
-      code: "AI_PROVIDER_NOT_CONFIGURED",
-      message: "Add OPENAI_API_KEY to this Vercel project's Production environment, then redeploy."
+      error: "Free AI provider is not connected yet.",
+      code: "CLOUDFLARE_NOT_CONFIGURED",
+      message: "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to this Vercel project's Production environment, then redeploy."
     });
   }
 
@@ -43,46 +45,49 @@ export default async function handler(req, res) {
     const style = clean(body.style, 60) || "Photorealistic";
 
     const prompt = [
-      "Edit the supplied portrait photograph. Create a polished, realistic final photograph, not a collage or illustration.",
-      "IDENTITY PRESERVATION: keep the same person's recognizable identity, facial structure, eyes, nose, mouth, skin tone and distinctive features. Do not replace the person or add other people. Keep natural anatomy and realistic hands.",
+      "Edit reference image 0 into one polished, realistic photograph. Keep the same main person from reference image 0; do not replace the person or add other people.",
+      "Preserve recognizable facial identity, face shape, eyes, nose, mouth, skin tone, hairstyle and distinctive features as closely as possible. Keep natural anatomy and realistic hands.",
       "AGE: " + (age === "Custom age" && customAge ? "Depict the same person at approximately " + customAge + " years old." : age + ". If Keep original age, do not change age."),
       "WARDROBE: " + outfit + ". If Keep original outfit, preserve the current clothing.",
       "SETTING: " + (world === "Custom scene" && customScene ? customScene : world) + ". If Keep original background, preserve the existing setting.",
       "VISUAL STYLE: " + style + ".",
-      "Maintain a flattering, believable photographic composition, coherent lighting, high detail, and a natural-looking result. Avoid text, watermarks, logos, borders, frames, or captions; the studio adds those locally after generation."
+      "Create a believable photographic composition with coherent lighting and natural detail. Do not add text, watermarks, logos, borders, frames, or captions; the studio adds those locally after generation."
     ].join("\n");
 
     const form = new FormData();
-    form.append("model", "gpt-image-2.6-sunburst");
     form.append("prompt", prompt);
-    form.append("quality", "high");
-    form.append("size", "1024x1536");
-    form.append("output_format", "png");
-    form.append("image", new Blob([bytes], { type: match[1] }), "portrait." + (match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1]));
+    form.append("input_image_0", new Blob([bytes], { type: match[1] }), "reference." + (match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1]));
+    form.append("width", "768");
+    form.append("height", "1024");
 
-    const upstream = await fetch("https://api.openai.com/v1/images/edits", {
-      method: "POST",
-      headers: { Authorization: "Bearer " + apiKey },
-      body: form
-    });
+    const upstream = await fetch(
+      "https://api.cloudflare.com/client/v4/accounts/" + encodeURIComponent(accountId) + "/ai/run/" + MODEL,
+      {
+        method: "POST",
+        headers: { Authorization: "Bearer " + apiToken },
+        body: form
+      }
+    );
 
     const result = await upstream.json().catch(() => ({}));
-    if (!upstream.ok) {
-      const detail = result?.error?.message || "The image provider could not complete this edit.";
-      const status = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status === 429 ? 429 : 502;
+    if (!upstream.ok || result?.success === false) {
+      const detail = result?.errors?.[0]?.message || result?.messages?.[0]?.message || result?.error?.message || "Cloudflare Workers AI could not complete this edit.";
+      const status = upstream.status === 401 || upstream.status === 403 ? 502 : upstream.status === 429 ? 429 : upstream.status === 400 ? 400 : 502;
       return res.status(status).json({
         error: detail,
-        code: upstream.status === 429 ? "AI_RATE_LIMIT" : "AI_PROVIDER_ERROR"
+        code: upstream.status === 429 ? "AI_RATE_LIMIT" : "CLOUDFLARE_AI_ERROR"
       });
     }
 
-    const output = result?.data?.[0]?.b64_json;
-    if (!output) {
+    const output = result?.result?.image;
+    if (!output || typeof output !== "string") {
       return res.status(502).json({ error: "The AI provider returned no image. Please try again." });
     }
+
     return res.status(200).json({
       image: "data:image/png;base64," + output,
-      revisedPrompt: result.data[0].revised_prompt || null
+      provider: "Cloudflare Workers AI",
+      model: MODEL
     });
   } catch (error) {
     return res.status(500).json({ error: "Image generation failed. Please try again." });
