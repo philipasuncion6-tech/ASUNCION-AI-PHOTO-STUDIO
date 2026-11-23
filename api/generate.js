@@ -58,7 +58,6 @@ export default async function handler(req, res) {
     form.append("quality", "high");
     form.append("size", "1024x1536");
     form.append("output_format", "png");
-    form.append("input_fidelity", "high");
     form.append("image", new Blob([bytes], { type: match[1] }), "portrait." + (match[1] === "image/jpeg" ? "jpg" : match[1].split("/")[1]));
 
     const upstream = await fetch("https://api.openai.com/v1/images/edits", {
