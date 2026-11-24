@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     const customScene = clean(body.customScene, 180);
     const style = clean(body.style, 60) || "Photorealistic";
 
-    const exactAgeFromOption = age.match(/^(\\d{1,3})\\s+years old$/i);
+    const exactAgeFromOption = age.match(/^(\d{1,3})\s+years old$/i);
     const targetAge = age === "Custom age"
       ? Number(customAge)
       : exactAgeFromOption
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
       "SETTING: " + (world === "Custom scene" && customScene ? customScene : world) + ". If Keep original background, preserve the existing setting.",
       "VISUAL STYLE: " + style + ".",
       "Create a believable photographic composition with coherent lighting, natural skin detail, and realistic anatomy and hands. Do not add text, watermarks, logos, borders, frames, or captions; the studio adds those locally after generation."
-    ].join("\\n");
+    ].join("\n");
 
     const form = new FormData();
     form.append("prompt", prompt);
