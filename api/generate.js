@@ -44,14 +44,30 @@ export default async function handler(req, res) {
     const customScene = clean(body.customScene, 180);
     const style = clean(body.style, 60) || "Photorealistic";
 
+    const exactAgeFromOption = age.match(/^(\d{1,3})\s+years old$/i);
+    const targetAge = age === "Custom age"
+      ? Number(customAge)
+      : exactAgeFromOption
+        ? Number(exactAgeFromOption[1])
+        : null;
+    const hasExactTargetAge = Number.isInteger(targetAge) && targetAge >= 1 && targetAge <= 100;
+    const ageInstruction = age === "Keep original age"
+      ? "AGE: Keep the person's current age and age-related appearance unchanged."
+      : hasExactTargetAge
+        ? "AGE TRANSFORMATION: Depict the SAME person at approximately " + targetAge + " years old. Make the age change clearly visible and age-appropriate, not just a beauty filter or skin smoothing. " +
+          (targetAge <= 25
+            ? "Give the person a believable youthful appearance for this exact age: naturally youthful skin texture, age-appropriate facial fullness and contours, and no age lines, age spots, or age-related sagging inconsistent with the target age. Avoid making the person look like a child when the target is 18."
+            : "Adjust age-related skin texture, facial fullness, and other visible age cues naturally for the requested age.")
+        : "AGE RANGE: " + age + ". Choose a believable age within this range while keeping the same recognizable person.";
     const prompt = [
-      "Edit reference image 0 into one polished, realistic photograph. Keep the same main person from reference image 0; do not replace the person or add other people.",
-      "Preserve recognizable facial identity, face shape, eyes, nose, mouth, skin tone, hairstyle and distinctive features as closely as possible. Keep natural anatomy and realistic hands.",
-      "AGE: " + (age === "Custom age" && customAge ? "Depict the same person at approximately " + customAge + " years old." : age + ". If Keep original age, do not change age."),
+      "Edit reference image 0 into one polished, photorealistic photograph. Reference image 0 is the identity source and must remain the same person. Do not replace the person, blend in another face, or add other people.",
+      "IDENTITY IS THE HIGHEST PRIORITY: preserve the person's recognizable identity and distinctive facial landmarks—overall face outline, eye shape and spacing, eyebrows, nose bridge and tip, lip shape, smile, jaw/chin character, skin tone, and any visible distinguishing marks. The result must still look unmistakably like the person in the reference, not a generic attractive model.",
+      "Change only the age-related appearance needed for the requested age. Keep the person's core facial structure and identity cues consistent; do not change gender presentation, ethnicity, or skin tone. Avoid excessive beautification, face reshaping, artificial plastic skin, or exaggerated features.",
+      ageInstruction,
       "WARDROBE: " + outfit + ". If Keep original outfit, preserve the current clothing.",
       "SETTING: " + (world === "Custom scene" && customScene ? customScene : world) + ". If Keep original background, preserve the existing setting.",
       "VISUAL STYLE: " + style + ".",
-      "Create a believable photographic composition with coherent lighting and natural detail. Do not add text, watermarks, logos, borders, frames, or captions; the studio adds those locally after generation."
+      "Create a believable photographic composition with coherent lighting, natural skin detail, and realistic anatomy and hands. Do not add text, watermarks, logos, borders, frames, or captions; the studio adds those locally after generation."
     ].join("\n");
 
     const form = new FormData();
